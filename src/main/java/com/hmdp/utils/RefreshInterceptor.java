@@ -2,14 +2,11 @@ package com.hmdp.utils;
 
 import cn.hutool.core.bean.BeanUtil;
 import com.hmdp.dto.UserDTO;
-import com.hmdp.entity.User;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -18,25 +15,29 @@ import java.util.concurrent.TimeUnit;
  * @version 1.0
  * @since 2025
  */
-public class LoginInterceptor implements HandlerInterceptor {
+public class RefreshInterceptor implements HandlerInterceptor {
 
     private RedisTemplate redisTemplate;
 
-    public LoginInterceptor(RedisTemplate redisTemplate) {
+    public RefreshInterceptor(RedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
     }
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
-//        HttpSession session = request.getSession();
+        String key = RedisConstants.LOGIN_USER_KEY + request.getHeader("authorization");
 
-//        UserDTO user = (UserDTO) session.getAttribute("user");
+        Map<Object, Object> map = redisTemplate.opsForHash().entries(key);
 
-        UserDTO user = UserHolder.getUser();
-
-        if(user == null) {
-            throw new RuntimeException("用户未登录");
+        if(map.isEmpty()) {
+            return true;
         }
+
+        UserDTO user = BeanUtil.fillBeanWithMap(map, new UserDTO(), false);
+
+        redisTemplate.expire(key, RedisConstants.LOGIN_USER_TTL, TimeUnit.SECONDS);
+
+        UserHolder.saveUser(user);
 
         return true;
     }
