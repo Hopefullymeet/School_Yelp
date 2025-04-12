@@ -1,15 +1,19 @@
 package com.hmdp.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.LoginFormDTO;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.User;
 import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.RegexUtils;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpSession;
@@ -86,8 +90,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             user = createUser(loginForm.getPhone());
         }
 
+        UserDTO userDTO = new UserDTO();
+        BeanUtils.copyProperties(user, userDTO);
         //储存用户信息到session
-        session.setAttribute("user", user);
+        session.setAttribute("user", userDTO);
 
         return Result.ok();
     }
@@ -98,6 +104,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         user.setNickName(USER_NICK_NAME_PREFIX + RandomUtil.randomString(5));
         user.setCreateTime(LocalDateTime.now());
         user.setUpdateTime(LocalDateTime.now());
+
+        userMapper.insert(user);
 
         return user;
     }
