@@ -2,11 +2,15 @@ package com.hmdp.controller;
 
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Shop;
 import com.hmdp.service.IShopService;
+import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.SystemConstants;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
@@ -32,8 +36,10 @@ public class ShopController {
      * @return 商铺详情数据
      */
     @GetMapping("/{id}")
+//    @Cacheable(cacheNames = RedisConstants.CACHE_SHOP_KEY, key = "#id")
     public Result queryShopById(@PathVariable("id") Long id) {
-        return Result.ok(shopService.getById(id));
+        return shopService.queryById(id);
+//        return shopService.queryByIdTest(id);
     }
 
     /**
@@ -57,7 +63,7 @@ public class ShopController {
     @PutMapping
     public Result updateShop(@RequestBody Shop shop) {
         // 写入数据库
-        shopService.updateById(shop);
+        shopService.updateShop(shop);
         return Result.ok();
     }
 

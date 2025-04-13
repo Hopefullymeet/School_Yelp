@@ -7,6 +7,7 @@ import org.springframework.cache.annotation.EnableCaching;
 
 @MapperScan("com.hmdp.mapper")
 @SpringBootApplication
+@EnableCaching
 public class HmDianPingApplication {
 
     public static void main(String[] args) {
