@@ -13,4 +13,10 @@ import com.baomidou.mybatisplus.extension.service.IService;
  */
 public interface ISeckillVoucherService extends IService<SeckillVoucher> {
 
+    /**
+     *
+     * @param id
+     */
+    boolean soldSeckillVoucherById(long id);
+
 }
