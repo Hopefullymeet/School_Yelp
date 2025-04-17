@@ -9,15 +9,17 @@ import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.hmdp.utils.RedisConstants;
-import com.hmdp.utils.RedisIdWorker;
-import com.hmdp.utils.UserHolder;
+import com.hmdp.utils.*;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.concurrent.TimeUnit;
 
 /**
  * <p>
@@ -45,6 +47,12 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Autowired
     private RedisIdWorker redisIdWorker;
 
+    @Autowired
+    private RedisTemplate redisTemplate;
+
+    @Autowired
+    private RedissonClient redissonClient;
+
     @Override
     public long seckillVoucher(Long voucherId) {
         SeckillVoucher seckillVoucher = seckillVoucherMapper.selectById(voucherId);
@@ -71,12 +79,46 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 //            throw new RuntimeException("库存不足！");
 //        }
 
-        // TODO 提醒!!!Synchronized加在方法上效率太低，加在方法内部时可能释放了锁但事务还没完成，所以加在调用事务的地方
-        synchronized (UserHolder.getUser().getId().toString().intern()) {
-            // TODO 提醒!!!@Transactional注解是由Spring中的代理对象执行的，但是在这里，如果直接调用createVoucherOrder()方法，则没有使用代理对象，就不会使用@Transactional
-            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
-            return proxy.createVoucherOrder(voucherId);
+//        // TODO 提醒!!!Synchronized加在方法上效率太低，加在方法内部时可能释放了锁但事务还没完成，所以加在调用方法的地方
+//        synchronized (UserHolder.getUser().getId().toString().intern()) {
+//            // TODO 提醒!!!@Transactional注解是由Spring中的代理对象执行的，但是在这里，如果直接调用createVoucherOrder()方法，则没有使用代理对象，就不会使用@Transactional
+//            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+//            return proxy.createVoucherOrder(voucherId);
+//        }
+
+//        long userId = UserHolder.getUser().getId();
+//
+//        // TODO 提醒!!!锁加在方法上效率太低，加在方法内部时可能释放了锁但事务还没完成，所以加在调用方法的地方
+//        ILock lock = new RedisLock("order:" + userId, redisTemplate);
+//
+//        if(lock.tryLock(10)) {
+//            try {
+//                // TODO 提醒!!!@Transactional注解是由Spring中的代理对象执行的，但是在这里，如果直接调用createVoucherOrder()方法，则没有使用代理对象，就不会使用@Transactional
+//                IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+//                return proxy.createVoucherOrder(voucherId);
+//            } finally {
+//                lock.unlock();
+//            }
+//        }
+
+        long userId = UserHolder.getUser().getId();
+
+        // TODO 提醒!!!锁加在方法上效率太低，加在方法内部时可能释放了锁但事务还没完成，所以加在调用方法的地方
+        RLock lock = redissonClient.getLock("lock:order:" + userId);
+
+        try {
+            if(lock.tryLock(1, 10, TimeUnit.SECONDS)) {
+                // TODO 提醒!!!@Transactional注解是由Spring中的代理对象执行的，但是在这里，如果直接调用createVoucherOrder()方法，则没有使用代理对象，就不会使用@Transactional
+                IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+                return proxy.createVoucherOrder(voucherId);
+            }
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        } finally {
+            lock.unlock();
         }
+
+        throw new RuntimeException("重复请求！");
     }
 
     @Transactional
