@@ -6,12 +6,12 @@ spring:
   datasource:
     driver-class-name: com.mysql.jdbc.Driver
     url: jdbc:mysql://127.0.0.1:3306/hm_dianping?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
-    username: root
-    password: N.dwhzshi00Y*88
+    username: ***
+    password: ***
   redis:
-    host: localhost
+    host: ***
     port: 6379
-#    password: 123456
+#    password: ***
     lettuce:
       pool:
         max-active: 10
