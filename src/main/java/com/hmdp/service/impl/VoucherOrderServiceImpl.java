@@ -1,7 +1,6 @@
 package com.hmdp.service.impl;
 
 import com.hmdp.entity.SeckillVoucher;
-import com.hmdp.entity.Voucher;
 import com.hmdp.entity.VoucherOrder;
 import com.hmdp.mapper.SeckillVoucherMapper;
 import com.hmdp.mapper.VoucherMapper;
@@ -10,16 +9,22 @@ import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.*;
+import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.annotation.PostConstruct;
 import java.time.LocalDateTime;
-import java.util.concurrent.TimeUnit;
+import java.util.Collections;
+import java.util.concurrent.*;
 
 /**
  * <p>
@@ -30,10 +35,14 @@ import java.util.concurrent.TimeUnit;
  * @since 2021-12-22
  */
 @Service
+@Slf4j
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
 
     @Autowired
     private VoucherMapper voucherMapper;
+
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
 
     @Autowired
     private SeckillVoucherMapper seckillVoucherMapper;
@@ -52,6 +61,39 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Autowired
     private RedissonClient redissonClient;
+
+    private static final DefaultRedisScript<Long> SECKILL_SCRIPT;
+    static {
+        SECKILL_SCRIPT = new DefaultRedisScript<>();
+        SECKILL_SCRIPT.setLocation(new ClassPathResource("seckill.lua"));
+        SECKILL_SCRIPT.setResultType(Long.class);
+    }
+
+    private IVoucherOrderService proxy;
+
+    private BlockingQueue<VoucherOrder> queue = new ArrayBlockingQueue<>(1024 * 1024);
+
+    private static final ExecutorService service = Executors.newSingleThreadExecutor();
+
+    private class OrderHandler implements Runnable {
+        @Override
+        public void run() {
+            while(true) {
+                try {
+                    VoucherOrder voucherOrder = queue.take();
+
+                    handleVoucherOrder(voucherOrder);
+                } catch (InterruptedException e) {
+                    log.info("异常！");
+                }
+            }
+        }
+    }
+
+    @PostConstruct
+    public void init() {
+        service.submit(new OrderHandler());
+    }
 
     @Override
     public long seckillVoucher(Long voucherId) {
@@ -101,29 +143,79 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 //            }
 //        }
 
-        long userId = UserHolder.getUser().getId();
+//        long userId = UserHolder.getUser().getId();
+//
+//        // TODO 提醒!!!锁加在方法上效率太低，加在方法内部时可能释放了锁但事务还没完成，所以加在调用方法的地方
+//        RLock lock = redissonClient.getLock("lock:order:" + userId);
+//
+//        try {
+//            if(lock.tryLock(1, 10, TimeUnit.SECONDS)) {
+//                // TODO 提醒!!!@Transactional注解是由Spring中的代理对象执行的，但是在这里，如果直接调用createVoucherOrder()方法，则没有使用代理对象，就不会使用@Transactional
+//                IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+//                return proxy.createVoucherOrder(voucherId);
+//            }
+//        } catch (InterruptedException e) {
+//            throw new RuntimeException(e);
+//        } finally {
+//            lock.unlock();
+//        }
 
-        // TODO 提醒!!!锁加在方法上效率太低，加在方法内部时可能释放了锁但事务还没完成，所以加在调用方法的地方
-        RLock lock = redissonClient.getLock("lock:order:" + userId);
+//        throw new RuntimeException("重复请求！");
 
-        try {
-            if(lock.tryLock(1, 10, TimeUnit.SECONDS)) {
-                // TODO 提醒!!!@Transactional注解是由Spring中的代理对象执行的，但是在这里，如果直接调用createVoucherOrder()方法，则没有使用代理对象，就不会使用@Transactional
-                IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
-                return proxy.createVoucherOrder(voucherId);
-            }
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        } finally {
-            lock.unlock();
+
+
+        Long userId = UserHolder.getUser().getId();
+
+        // 用StringRedisTemplate！！！！！！！！！！
+        Long result = stringRedisTemplate.execute(SECKILL_SCRIPT, Collections.emptyList(), voucherId.toString(), userId.toString());
+
+        int ans = result.intValue();
+
+        if(ans == 1) {
+            throw new RuntimeException("库存不足");
+        } else if(ans == 2) {
+            throw new RuntimeException("用户已经下单过！");
         }
 
-        throw new RuntimeException("重复请求！");
+        long orderId = redisIdWorker.idWorker("SeckillVoucher");
+
+        proxy = (IVoucherOrderService) AopContext.currentProxy();
+
+        VoucherOrder voucherOrder = new VoucherOrder();
+        voucherOrder.setVoucherId(voucherId);
+        voucherOrder.setUserId(userId);
+        voucherOrder.setId(orderId);
+
+        queue.add(voucherOrder);
+
+        return orderId;
+    }
+
+    //屎
+    private void handleVoucherOrder(VoucherOrder voucherOrder) {
+        Long userId = voucherOrder.getUserId();
+        // 创建锁对象
+        RLock redisLock = redissonClient.getLock("lock:order:" + userId);
+        // 尝试获取锁
+        boolean isLock = redisLock.tryLock();
+
+        if(!isLock) {
+            throw new RuntimeException("用户冲突");
+        }
+
+        if(isLock) {
+            try {
+                proxy.createVoucherOrder(voucherOrder);
+            } finally {
+                redisLock.unlock();
+            }
+        }
     }
 
     @Transactional
-    public long createVoucherOrder(long voucherId) {
-        if (voucherOrderMapper.selectOrderNumber(UserHolder.getUser().getId(), voucherId) > 0) {
+    @Override
+    public void createVoucherOrder(VoucherOrder voucherOrder) {
+        if (voucherOrderMapper.selectOrderNumber(voucherOrder.getUserId(), voucherOrder.getVoucherId()) > 0) {
             throw new RuntimeException("该用户已经下单过此优惠卷，无法再次下单");
         }
 
@@ -136,25 +228,50 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 //            throw new RuntimeException("该用户已经下单过此优惠卷，无法再次下单");
 //        }
 
-        boolean success = seckillVoucherService.soldSeckillVoucherById(voucherId);
+        boolean success = seckillVoucherService.soldSeckillVoucherById(voucherOrder.getVoucherId());
 
         if (!success) {
             throw new RuntimeException("优惠卷抢光了");
         }
 
-        VoucherOrder order = new VoucherOrder();
-
-        long id = redisIdWorker.idWorker("SeckillVoucher");
-
-        order.setId(id);
-        order.setVoucherId(voucherId);
-        order.setStatus(1);
-        order.setUserId(UserHolder.getUser().getId());
-        order.setCreateTime(LocalDateTime.now());
-        order.setUpdateTime(LocalDateTime.now());
-
-        save(order);
-
-        return id;
+        save(voucherOrder);
     }
+
+//    @Transactional
+//    @Override
+//    public long createVoucherOrder(Long voucherId) {
+//        if (voucherOrderMapper.selectOrderNumber(UserHolder.getUser().getId(), voucherId) > 0) {
+//            throw new RuntimeException("该用户已经下单过此优惠卷，无法再次下单");
+//        }
+//
+////        int count = query()
+////                .eq("user_id", UserHolder.getUser().getId())
+////                .eq("voucher_id", voucherId)
+////                .count();
+////
+////        if(count > 0) {
+////            throw new RuntimeException("该用户已经下单过此优惠卷，无法再次下单");
+////        }
+//
+//        boolean success = seckillVoucherService.soldSeckillVoucherById(voucherId);
+//
+//        if (!success) {
+//            throw new RuntimeException("优惠卷抢光了");
+//        }
+//
+//        VoucherOrder order = new VoucherOrder();
+//
+//        long id = redisIdWorker.idWorker("SeckillVoucher");
+//
+//        order.setId(id);
+//        order.setVoucherId(voucherId);
+//        order.setStatus(1);
+//        order.setUserId(UserHolder.getUser().getId());
+//        order.setCreateTime(LocalDateTime.now());
+//        order.setUpdateTime(LocalDateTime.now());
+//
+//        save(order);
+//
+//        return id;
+//    }
 }
