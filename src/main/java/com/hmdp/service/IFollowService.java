@@ -12,5 +12,17 @@ import com.baomidou.mybatisplus.extension.service.IService;
  * @since 2021-12-22
  */
 public interface IFollowService extends IService<Follow> {
+    /**
+     * 查询是否关注
+     * @param id
+     * @return
+     */
+    boolean queryFollowOrNot(Long id);
 
+    /**
+     * 关注或取关
+     * @param id
+     * @param status
+     */
+    void followOrUnfollow(Long id, boolean status);
 }
