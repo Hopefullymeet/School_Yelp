@@ -77,4 +77,16 @@ public class BlogController {
     public Result queryHotBlog(@RequestParam(value = "current", defaultValue = "1") Integer current) {
         return Result.ok(blogService.queryHotBlog(current));
     }
+
+    /**
+     * 查询点赞时间前N名
+     * @param id
+     * @return
+     */
+    @GetMapping("/likes/{id}")
+    public Result queryTopNLike(@PathVariable Long id) {
+        List<UserDTO> list = blogService.queryTopNLike(id);
+
+        return Result.ok(list);
+    }
 }

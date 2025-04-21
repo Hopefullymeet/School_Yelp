@@ -1,5 +1,6 @@
 package com.hmdp.service;
 
+import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
 import com.baomidou.mybatisplus.extension.service.IService;
 
@@ -33,4 +34,11 @@ public interface IBlogService extends IService<Blog> {
      * @return
      */
     List<Blog> queryHotBlog(Integer current);
+
+    /**
+     * 查询点赞时间前N名
+     * @param id
+     * @return
+     */
+    List<UserDTO> queryTopNLike(Long id);
 }
