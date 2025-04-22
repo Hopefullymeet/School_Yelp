@@ -1,18 +1,23 @@
 package com.hmdp.service.impl;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.hmdp.dto.ScrollResult;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
+import com.hmdp.entity.Follow;
 import com.hmdp.entity.User;
 import com.hmdp.mapper.BlogMapper;
+import com.hmdp.mapper.FollowMapper;
 import com.hmdp.service.IBlogService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.service.IFollowService;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -37,6 +42,9 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
 
     @Autowired
     private IUserService userService;
+
+    @Autowired
+    private IFollowService followService;
 
     /**
      * 根据id查询博客
@@ -142,6 +150,64 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
 
             ans.add(userDTO);
         }
+
+        return ans;
+    }
+
+    /**
+     * 保存博客
+     * @param blog
+     */
+    @Override
+    public void saveBlog(Blog blog) {
+        // 获取登录用户
+        UserDTO user = UserHolder.getUser();
+        blog.setUserId(user.getId());
+        // 保存探店博文
+        save(blog);
+
+        Long blogId = blog.getId();
+        List<Follow> followList = followService.getFansByFollowId(user.getId());
+
+        for(Follow follow : followList) {
+            String key = "inbox:user:" + follow.getUserId();
+            stringRedisTemplate.opsForZSet().add(key, blogId.toString(), System.currentTimeMillis());
+        }
+    }
+
+    /**
+     * 获取关注者的博客
+     * @param lastId
+     * @return
+     */
+    @Override
+    public ScrollResult getFollowBlog(Long lastId, Integer offset) {
+        ScrollResult ans = new ScrollResult();
+        List<Blog> blogList = new ArrayList<>();
+        Integer toSetOffset = 0;
+
+        String key = "inbox:user:" + UserHolder.getUser().getId();
+
+        if(offset == null) {
+            offset = 0;
+        }
+        Set<ZSetOperations.TypedTuple<String>> typedTuples = stringRedisTemplate.opsForZSet().reverseRangeByScoreWithScores(key, 0, lastId, offset, 3);
+
+        Long minTime = System.currentTimeMillis();
+        for(ZSetOperations.TypedTuple typedTuple : typedTuples) {
+            blogList.add(selectBlog(Long.valueOf((String) typedTuple.getValue())));
+            minTime = Math.min(minTime, typedTuple.getScore().longValue());
+        }
+
+        for(ZSetOperations.TypedTuple typedTuple : typedTuples) {
+            if(Long.valueOf(typedTuple.getScore().longValue()).equals(minTime)) {
+                toSetOffset++;
+            }
+        }
+
+        ans.setList(blogList);
+        ans.setMinTime(minTime);
+        ans.setOffset(toSetOffset);
 
         return ans;
     }

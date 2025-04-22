@@ -36,4 +36,11 @@ public interface IFollowService extends IService<Follow> {
      * @return
      */
     List<UserDTO> getCommonFollow(Long id);
+
+    /**
+     * 通过被关注者id筛选粉丝
+     * @param id
+     * @return
+     */
+    List<Follow> getFansByFollowId(Long id);
 }

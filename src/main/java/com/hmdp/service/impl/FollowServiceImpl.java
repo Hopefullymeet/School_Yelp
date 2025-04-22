@@ -69,7 +69,7 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
      */
     @Override
     public void followOrUnfollow(Long id, boolean status) {
-        /*Follow follow = new Follow();
+        Follow follow = new Follow();
         follow.setUserId(UserHolder.getUser().getId());
         follow.setFollowUserId(id);
         follow.setCreateTime(LocalDateTime.now());
@@ -79,7 +79,7 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
         } else {
             List<Follow> list = followMapper.selectByCon(follow);
             followMapper.deleteById(list.get(0));
-        }*/
+        }
 
         String key = "follow:user:" + UserHolder.getUser().getId();
         if(status) {
@@ -112,5 +112,18 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
         }
 
         return list;
+    }
+
+    /**
+     * 通过被关注者id筛选粉丝
+     * @param id
+     * @return
+     */
+    @Override
+    public List<Follow> getFansByFollowId(Long id) {
+        Follow follow = new Follow();
+        follow.setFollowUserId(id);
+
+        return followMapper.selectByCon(follow);
     }
 }
