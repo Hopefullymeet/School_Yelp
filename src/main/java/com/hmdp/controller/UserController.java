@@ -108,4 +108,26 @@ public class UserController {
         // 返回
         return Result.ok(userDTO);
     }
+
+    /**
+     * 签到
+     * @return
+     */
+    @PostMapping("/sign")
+    public Result sign() {
+        userService.sign();
+
+        return Result.ok();
+    }
+
+    /**
+     * 计算本月连续签到天数
+     * @return
+     */
+    @GetMapping("/sign/count")
+    public Result getCount() {
+        Integer count = userService.getCount();
+
+        return Result.ok(count);
+    }
 }

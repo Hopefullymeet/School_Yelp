@@ -29,4 +29,16 @@ public interface IUserService extends IService<User> {
      * @param session
      */
     Result login(LoginFormDTO loginForm, HttpSession session);
+
+    /**
+     * 签到
+     * @return
+     */
+    void sign();
+
+    /**
+     * 计算本月连续签到天数
+     * @return
+     */
+    Integer getCount();
 }

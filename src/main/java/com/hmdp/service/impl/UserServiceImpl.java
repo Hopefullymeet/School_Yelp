@@ -13,18 +13,21 @@ import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RegexUtils;
+import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.context.annotation.Bean;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpSession;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -50,6 +53,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Autowired
     private RedisTemplate redisTemplate;
+
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
 
     /**
      * 发送验证码
@@ -134,5 +140,52 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         user.setId(Long.valueOf(userMapper.insert(user)));
 
         return user;
+    }
+
+    /**
+     * 签到
+     */
+    @Override
+    public void sign() {
+        String key ="sign:" +  UserHolder.getUser().getId() + ":" + LocalDate.now().getYear() + ":" + LocalDate.now().getMonth();
+        Long day = Long.valueOf(LocalDate.now().getDayOfMonth()) - 1;
+
+        stringRedisTemplate.opsForValue().setBit(key, day, true);
+    }
+
+    /**
+     *
+     * @return
+     */
+    @Override
+    public Integer getCount() {
+        String key ="sign:" +  UserHolder.getUser().getId() + ":" + LocalDate.now().getYear() + ":" + LocalDate.now().getMonth();
+
+        List<Long> list = stringRedisTemplate.opsForValue().bitField(key,BitFieldSubCommands.
+                create().
+                get(BitFieldSubCommands.BitFieldType.unsigned(LocalDate.now().getDayOfMonth())).
+                valueAt(0)
+        );
+
+        if(list == null || list.isEmpty()) {
+            return 0;
+        }
+
+        Long l = list.get(0);
+        int ans = 0;
+
+        while(l != 0) {
+            long isSigned = l & 1L;
+
+            if(isSigned == 1L) {
+                ans++;
+            } else {
+                break;
+            }
+
+            l = l >> 1;
+        }
+
+        return ans;
     }
 }
